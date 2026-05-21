@@ -7,30 +7,16 @@ export function authenticate(request: Request, env: Env): void {
     throw new AppError("INTERNAL_ERROR", "No API keys configured");
   }
 
-  const token = extractToken(request);
-  if (!token) {
-    throw new AppError("UNAUTHORIZED", "Missing authentication token");
-  }
-
-  const valid = keys.some((key) => timingSafeEqual(token, key));
-  if (!valid) {
-    throw new AppError("UNAUTHORIZED", "Invalid authentication token");
-  }
-}
-
-function extractToken(request: Request): string | null {
-  const authHeader = request.headers.get("Authorization");
-  if (authHeader?.startsWith("Bearer ")) {
-    return authHeader.slice(7);
-  }
-
   const url = new URL(request.url);
   const csvkey = url.searchParams.get("csvkey");
-  if (csvkey) {
-    return csvkey;
+  if (!csvkey) {
+    throw new AppError("UNAUTHORIZED", "Missing csvkey query parameter");
   }
 
-  return null;
+  const valid = keys.some((key) => timingSafeEqual(csvkey, key));
+  if (!valid) {
+    throw new AppError("UNAUTHORIZED", "Invalid csvkey");
+  }
 }
 
 function parseApiKeys(raw: string | undefined): string[] {

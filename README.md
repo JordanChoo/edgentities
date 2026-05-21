@@ -22,7 +22,7 @@ Entity extraction is the first step in building knowledge graphs from unstructur
                     |                       |
   HTTP Request ---->  TypeScript Shell     |
                     |   - Hono router       |
-                    |   - Auth (Bearer/key) |
+                    |   - Auth (?csvkey=)   |
                     |   - Zod validation    |
                     |   - Provider dispatch |
                     |   - Gleaning loop     |
@@ -81,8 +81,7 @@ npm run dev
 ### Making a request
 
 ```bash
-curl -X POST http://localhost:8787/v1/extract \
-  -H "Authorization: Bearer your-auth-key" \
+curl -X POST "http://localhost:8787/v1/extract?csvkey=your-auth-key" \
   -H "Content-Type: application/json" \
   -d '{
     "text": "Apple was founded by Steve Jobs and Steve Wozniak in 1976 in Los Altos, California.",
@@ -175,10 +174,12 @@ Custom entity types can be passed directly via the `entity_types` field using an
 
 ## Authentication
 
-All protected endpoints require one of:
+All protected endpoints require the `csvkey` query parameter:
 
-- **Bearer token**: `Authorization: Bearer <key>`
-- **Query parameter**: `?csvkey=<key>`
+```
+GET /v1/presets?csvkey=<key>
+POST /v1/extract?csvkey=<key>
+```
 
 API keys are configured as a comma-separated environment variable (`API_KEYS`), allowing rotation without redeployment. Authentication uses constant-time comparison to prevent timing attacks.
 
@@ -317,7 +318,7 @@ edgentities/
 |       +-- dedupe.rs        # Cross-pass deduplication
 +-- src/                     # TypeScript Worker shell
 |   +-- index.ts             # Hono HTTP router
-|   +-- auth.ts              # Bearer + csvkey authentication
+|   +-- auth.ts              # csvkey query parameter authentication
 |   +-- validate.ts          # Zod request validation
 |   +-- extractor.ts         # Gleaning loop orchestration
 |   +-- kernel.ts            # WASM bridge (init + wrappers)
