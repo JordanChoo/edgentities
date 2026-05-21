@@ -374,6 +374,10 @@ edgentities/
 | `npm run test` | Run test suite |
 | `npm run test:watch` | Run tests in watch mode |
 
+## Acknowledgments
+
+edgentities is derived from [edgequake](https://github.com/raphaelmansuy/edgequake) by Raphael Mansuy. The extraction kernel's prompt templates, tuple parser, entity name normalizer, and gleaning loop design are ported from edgequake's `edgequake-pipeline` crate. The original Rust source files are vendored in the `contract/` directory as a reference implementation.
+
 ## License
 
 MIT
