@@ -106,10 +106,18 @@ curl -X POST "http://localhost:8787/v1/extract?csvkey=your-auth-key" \
    wrangler whoami
    ```
 
-3. **Configure secrets.** Each command prompts you to paste the value interactively. Secrets must be set _before_ the first deploy; otherwise the Worker will return errors on every request. Only configure the provider keys you plan to use:
+3. **Configure secrets.** Each command prompts you to paste the value interactively. Secrets must be set _before_ the first deploy; otherwise the Worker will return errors on every request.
+
+   `API_KEYS` is the authentication secret — the value you set here is what callers must pass as the `?csvkey=` query parameter. You can set multiple keys (comma-separated) for different consumers:
 
    ```bash
    wrangler secret put API_KEYS
+   # When prompted, enter your key(s): e.g. "my-secret-key" or "key1,key2,key3"
+   ```
+
+   Then add at least one LLM provider key:
+
+   ```bash
    wrangler secret put GEMINI_API_KEY
    ```
 
@@ -158,10 +166,12 @@ If you prefer not to use the Wrangler CLI, you can deploy directly through the C
    - **Root directory:** leave empty (the project root contains `wrangler.toml`)
 5. Click **Deploy**. Cloudflare will clone the repo, install dependencies, compile the Rust kernel to WebAssembly, and deploy the Worker. The build environment must have Rust and `wasm-pack` installed; Cloudflare's build system includes Rust by default, but you may need to add `wasm-pack` installation to the build command: `curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh && npx wrangler deploy`
 6. After the first deploy completes, go to **Settings > Variables and Secrets** for the Worker and add the required secrets:
-   - `API_KEYS` — comma-separated list of valid authentication keys
-   - `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` — add whichever providers you plan to use
+   - `API_KEYS` — the authentication key(s) that callers must provide in the `?csvkey=` query parameter. If you need multiple keys (e.g., one per consumer), enter them as a comma-separated list (e.g., `key-for-app-a,key-for-app-b`). Every request to a protected endpoint must include `?csvkey=<one-of-these-values>` or it will be rejected with a `401`.
+   - `GEMINI_API_KEY` — your Google Generative AI API key (required if using the `gemini` provider)
+   - `OPENAI_API_KEY` — your OpenAI API key (required if using the `openai` provider)
+   - `ANTHROPIC_API_KEY` — your Anthropic API key (required if using the `anthropic` provider)
 
-   Click **Encrypt** for each value to store them as encrypted secrets.
+   Click **Encrypt** for each value to store them as encrypted secrets. You only need to add provider keys for the providers you plan to use — at least one is required for the Worker to be functional.
 
 With this setup, every push to `main` triggers an automatic rebuild and deploy. You can disable automatic deployments or limit them to specific branches under **Settings > Builds & Deployments**.
 
