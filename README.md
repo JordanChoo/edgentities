@@ -22,7 +22,7 @@ Entity extraction is the first step in building knowledge graphs from unstructur
                     |                       |
   HTTP Request ---->  TypeScript Shell     |
                     |   - Hono router       |
-                    |   - Auth (Bearer/CSV) |
+                    |   - Auth (Bearer/key) |
                     |   - Zod validation    |
                     |   - Provider dispatch |
                     |   - Gleaning loop     |
@@ -108,8 +108,8 @@ The `POST /v1/extract` endpoint accepts a JSON body with the following fields:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `text` | string | *required* | The text to extract entities from (1 to 32,000 characters). |
-| `provider` | `"openai"` \| `"anthropic"` \| `"gemini"` | — | Which LLM provider to use. Required unless a default is configured. |
+| `text` | string | *required* | The text to extract entities from. Minimum 1 character; upper bound set by `MAX_INPUT_CHARS` (default 32,000). |
+| `provider` | `"openai"` \| `"anthropic"` \| `"gemini"` | `"openai"` | Which LLM provider to use. Falls back to `DEFAULT_PROVIDER` env var, then `openai`. |
 | `entity_types` | string[] | — | Custom entity type list. Mutually exclusive with `preset`. |
 | `preset` | string | `"general"` | Named preset for entity types. Mutually exclusive with `entity_types`. |
 | `language` | string | `"English"` | Language for extraction output. |
@@ -366,12 +366,13 @@ edgentities/
 | Script | Description |
 |--------|-------------|
 | `npm run build:kernel` | Compile Rust kernel to WASM via wasm-pack |
-| `npm run build` | Full build (kernel + bundle) |
+| `npm run build` | Build the WASM kernel (alias for build:kernel) |
 | `npm run dev` | Start local Wrangler dev server |
 | `npm run deploy` | Deploy to production |
 | `npm run deploy:staging` | Deploy to staging |
 | `npm run typecheck` | Run TypeScript type checking |
 | `npm run test` | Run test suite |
+| `npm run test:watch` | Run tests in watch mode |
 
 ## License
 
