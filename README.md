@@ -1,0 +1,376 @@
+# edgentities
+
+A stateless entity and relationship extraction service deployed on Cloudflare Workers. Given a block of text, edgentities uses LLMs to identify entities (people, organizations, locations, concepts, etc.) and the relationships between them, returning structured JSON suitable for knowledge graph construction.
+
+The service is a hybrid TypeScript/Rust architecture: a TypeScript shell handles HTTP routing, authentication, request validation, and LLM provider orchestration, while a Rust kernel compiled to WebAssembly handles the deterministic, CPU-bound work of prompt construction, response parsing, entity name normalization, and cross-pass deduplication.
+
+## Why edgentities exists
+
+Entity extraction is the first step in building knowledge graphs from unstructured text. While the LLM does the heavy cognitive work of identifying entities and their connections, the surrounding infrastructure (prompt engineering, output parsing, name normalization, multi-pass gleaning, deduplication) is substantial and benefits from being isolated as a standalone service:
+
+- **Stateless by design.** No database, no file system, no long-lived connections. One text chunk in, one JSON object out.
+- **Geographically distributed.** Cloudflare Workers run in 300+ edge locations. The only wide-area network hop is the LLM API call itself.
+- **Provider-agnostic.** Route requests to OpenAI, Anthropic, or Google Gemini on a per-request basis depending on cost, latency, or quality requirements.
+- **Language-independent.** Extract entities in any language the LLM supports; all prompts and outputs respect the configured language parameter.
+- **Decoupled.** Any HTTP client can call the extraction endpoint. No SDK, no language binding, no monolith dependency.
+
+## Architecture
+
+```
+                    +-----------------------+
+                    |   Cloudflare Worker   |
+                    |                       |
+  HTTP Request ---->  TypeScript Shell     |
+                    |   - Hono router       |
+                    |   - Auth (Bearer/CSV) |
+                    |   - Zod validation    |
+                    |   - Provider dispatch |
+                    |   - Gleaning loop     |
+                    |         |             |
+                    |         v             |
+                    |   Rust/WASM Kernel    |
+                    |   - Prompt building   |
+                    |   - Tuple parsing     |
+                    |   - Name normalizer   |
+                    |   - Cross-pass dedup  |
+                    |   - Preset registry   |
+                    +-----------+-----------+
+                                |
+                                v
+                    OpenAI / Anthropic / Gemini
+```
+
+The TypeScript shell and Rust kernel run in the same V8 isolate. The WASM module is bundled at deploy time and initialized lazily on first request. There is no cold-start penalty beyond the sub-millisecond WASM instantiation.
+
+## Endpoints
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/v1/health` | No | Load balancer probe. Always returns `200`. |
+| `GET` | `/v1/version` | No | Returns service version and build metadata. |
+| `GET` | `/v1/ready` | Yes | Returns `200` if at least one LLM provider key is configured, `503` otherwise. |
+| `GET` | `/v1/presets` | Yes | Lists all available entity-type presets. |
+| `POST` | `/v1/extract` | Yes | Performs entity and relationship extraction. |
+
+## Quick start
+
+### Prerequisites
+
+- [Rust](https://rustup.rs/) (stable)
+- [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/)
+- [Node.js](https://nodejs.org/) (v18+)
+- A Cloudflare account (for deployment) or just `wrangler` for local dev
+
+### Local development
+
+```bash
+# Install dependencies
+npm install
+
+# Build the WASM kernel
+npm run build:kernel
+
+# Set up local secrets
+echo 'API_KEYS=your-auth-key' > .dev.vars
+echo 'GEMINI_API_KEY=your-gemini-key' >> .dev.vars
+
+# Start the dev server
+npm run dev
+```
+
+### Making a request
+
+```bash
+curl -X POST http://localhost:8787/v1/extract \
+  -H "Authorization: Bearer your-auth-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Apple was founded by Steve Jobs and Steve Wozniak in 1976 in Los Altos, California.",
+    "provider": "gemini",
+    "preset": "general"
+  }'
+```
+
+### Deployment
+
+```bash
+# Set secrets
+wrangler secret put API_KEYS
+wrangler secret put GEMINI_API_KEY
+
+# Deploy to production
+npm run deploy
+```
+
+## Request schema
+
+The `POST /v1/extract` endpoint accepts a JSON body with the following fields:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `text` | string | *required* | The text to extract entities from (1 to 32,000 characters). |
+| `provider` | `"openai"` \| `"anthropic"` \| `"gemini"` | — | Which LLM provider to use. Required unless a default is configured. |
+| `entity_types` | string[] | — | Custom entity type list. Mutually exclusive with `preset`. |
+| `preset` | string | `"general"` | Named preset for entity types. Mutually exclusive with `entity_types`. |
+| `language` | string | `"English"` | Language for extraction output. |
+| `glean_passes` | 0-3 | `1` | Number of additional "what did you miss?" passes. |
+| `model` | string | — | Override the provider's default model. |
+| `temperature` | 0-2 | `0` | LLM sampling temperature. |
+| `max_output_tokens` | integer | — | Cap on LLM output length. |
+| `tuple_delimiter` | string | `<\|#\|>` | Field separator in LLM output. |
+| `completion_delimiter` | string | `<\|COMPLETE\|>` | End-of-output sentinel. |
+| `merge_descriptions` | boolean | `false` | Concatenate duplicate descriptions instead of keeping longest. |
+
+## Response schema
+
+```json
+{
+  "request_id": "uuid",
+  "entities": [
+    {
+      "name": "STEVE_JOBS",
+      "type": "PERSON",
+      "description": "Steve Jobs was a co-founder of Apple Inc.",
+      "source_pass": 0
+    }
+  ],
+  "relationships": [
+    {
+      "source": "APPLE_INC.",
+      "target": "STEVE_JOBS",
+      "keywords": ["founding", "leadership"],
+      "description": "Steve Jobs co-founded Apple Inc.",
+      "source_pass": 0
+    }
+  ],
+  "stats": {
+    "input_tokens": 2048,
+    "output_tokens": 512,
+    "passes_executed": 2,
+    "complete_signal_received": true,
+    "malformed_lines_dropped": 0,
+    "duration_ms": 8500,
+    "provider": "gemini",
+    "model": "gemini-2.5-flash",
+    "entity_types_resolved": ["PERSON", "ORGANIZATION", "LOCATION", "..."]
+  },
+  "warnings": []
+}
+```
+
+## Presets
+
+Presets define curated entity-type lists for different domains:
+
+| Preset | Entity types |
+|--------|-------------|
+| **general** | PERSON, ORGANIZATION, LOCATION, EVENT, CONCEPT, TECHNOLOGY, PRODUCT, OTHER |
+| **manufacturing** | EQUIPMENT, COMPONENT, PROCESS, MATERIAL, DEFECT, MEASUREMENT, STANDARD, FACILITY, OPERATOR, PRODUCT, ORGANIZATION, OTHER |
+| **healthcare** | PATIENT, CONDITION, MEDICATION, PROCEDURE, PROVIDER, FACILITY, SYMPTOM, DIAGNOSIS, ANATOMY, DEVICE, ORGANIZATION, OTHER |
+| **legal** | PARTY, STATUTE, CASE, COURT, JURISDICTION, OBLIGATION, RIGHT, PROVISION, DATE, MONETARY_AMOUNT, ORGANIZATION, PERSON, OTHER |
+| **research** | AUTHOR, PUBLICATION, METHOD, DATASET, METRIC, INSTITUTION, FUNDER, CONCEPT, FINDING, EXPERIMENT, OTHER |
+| **finance** | INSTRUMENT, ENTITY, TRANSACTION, MARKET, METRIC, REGULATION, PERSON, ORGANIZATION, DATE, MONETARY_AMOUNT, EVENT, OTHER |
+
+Custom entity types can be passed directly via the `entity_types` field using any `UPPERCASE_UNDERSCORED` string (max 50 types per request).
+
+## Authentication
+
+All protected endpoints require one of:
+
+- **Bearer token**: `Authorization: Bearer <key>`
+- **Query parameter**: `?csvkey=<key>`
+
+API keys are configured as a comma-separated environment variable (`API_KEYS`), allowing rotation without redeployment. Authentication uses constant-time comparison to prevent timing attacks.
+
+## How extraction works
+
+### The gleaning loop
+
+Extraction runs in multiple passes to maximize recall:
+
+1. **Pass 0 (initial extraction):** The system prompt instructs the LLM to act as a Knowledge Graph Specialist. The user prompt injects the text and requested entity types. The LLM outputs structured tuples.
+
+2. **Passes 1-N (gleaning):** The LLM's previous response is appended to the conversation history, followed by a "continue" prompt asking it to identify anything it missed or formatted incorrectly. This iterative refinement catches entities that were overlooked in the initial pass.
+
+3. **Early termination:** If a gleaning pass produces zero new entities and zero new relationships, further passes are skipped.
+
+The number of gleaning passes (0-3) is configurable per request. More passes increase recall at the cost of additional LLM calls and latency.
+
+### Tuple-delimited output format
+
+Rather than asking the LLM to produce JSON (which is brittle with structured extraction), edgentities uses a line-oriented tuple format:
+
+```
+entity<|#|>Steve Jobs<|#|>PERSON<|#|>Co-founder of Apple Inc.
+entity<|#|>Apple<|#|>ORGANIZATION<|#|>Technology company founded in 1976.
+relation<|#|>Steve Jobs<|#|>Apple<|#|>founding, leadership<|#|>Steve Jobs co-founded Apple.
+<|COMPLETE|>
+```
+
+Each line is a record. Fields are separated by a configurable delimiter (`<|#|>` by default). The first field identifies the record type (`entity` or `relation`/`relationship`). A sentinel line (`<|COMPLETE|>`) signals that the LLM has finished outputting.
+
+This format was chosen because:
+- LLMs produce it more reliably than nested JSON for long outputs
+- Partial output is still parseable (each line is independent)
+- The sentinel enables detection of truncated responses
+- Delimiters are unlikely to appear in natural text
+
+### Entity name normalization
+
+Raw entity names from LLM output are canonicalized through a deterministic pipeline:
+
+1. **Trim** leading/trailing whitespace
+2. **Strip English articles** (The, A, An) from the beginning
+3. **Split** on whitespace (collapses multiple spaces, tabs, newlines)
+4. **Remove possessives** ('s and Unicode curly apostrophe variants)
+5. **Title-case** each word (first char upper, rest lower)
+6. **Join** with underscore
+7. **Uppercase** the entire result
+
+This ensures that "the United States's", "United States", "UNITED STATES", and "united states" all resolve to `UNITED_STATES`, enabling reliable deduplication and graph merging downstream.
+
+### Cross-pass deduplication
+
+After all passes complete, entities and relationships are deduplicated:
+
+**Entities** are grouped by normalized name. Within each group:
+- The first non-`OTHER` type wins (gleaning passes often refine generic types)
+- The longest description is kept, or all unique descriptions are concatenated with ` | ` if `merge_descriptions` is enabled
+- The earliest `source_pass` is preserved for provenance
+
+**Relationships** are grouped by an unordered `{source, target}` key (treating A→B and B→A as the same edge). Within each group:
+- Keywords are unioned across all instances
+- The same description merge policy applies as for entities
+- Deterministic output ordering: sorted by source_pass, then source name, then target name
+
+### Self-reference filtering
+
+Relationships where the normalized source and target resolve to the same entity are silently dropped. This catches cases where the LLM outputs "The Company relates to Company" or "Apple Inc. is associated with Apple" which would create meaningless self-loops in a knowledge graph.
+
+### Keyword capping
+
+Each relationship edge is limited to 5 keywords maximum. This prevents the LLM from producing unbounded keyword lists that would bloat the graph schema.
+
+## Design principles
+
+### Hybrid architecture rationale
+
+The TypeScript/Rust split is intentional and aligns responsibilities with each language's strengths:
+
+**TypeScript handles I/O and orchestration:**
+- HTTP routing (Hono provides ergonomic middleware, routing, and response helpers)
+- Request validation (Zod provides schema inference and detailed error messages)
+- LLM provider API calls (each provider has a different HTTP contract)
+- Conversation history management across gleaning passes
+- Abort signals and timeout enforcement
+
+**Rust/WASM handles deterministic computation:**
+- Prompt template construction (string-heavy, benefits from zero-copy slicing)
+- Response parsing (line-by-line state machine, no allocations for skipped lines)
+- Name normalization (Unicode-aware character manipulation)
+- Deduplication (HashMap-based grouping with sorted output)
+- Preset registry (static data, no runtime overhead)
+
+This split means the TypeScript layer never parses LLM output or manipulates entity names, and the Rust layer never makes network calls or manages async state. Each side has a minimal, well-typed interface.
+
+### Retry and backoff strategy
+
+Provider calls use exponential backoff with jitter-free delays of 250ms, 1s, and 4s. Only transient failures are retried:
+
+- **Retryable:** 408 (timeout), 429 (rate limit), 500, 502, 503, 504
+- **Not retryable:** 400 (bad request), 401/403 (auth), 404 (not found)
+
+The maximum retry count is configurable via the `LLM_MAX_RETRIES` environment variable (default: 3).
+
+### Error taxonomy
+
+All errors are classified with a machine-readable code and appropriate HTTP status:
+
+| Code | HTTP | Meaning |
+|------|------|---------|
+| `INVALID_REQUEST` | 400 | Request body failed validation |
+| `CONTENT_TOO_LARGE` | 400 | Text exceeds MAX_INPUT_CHARS |
+| `UNAUTHORIZED` | 401 | Missing or invalid credentials |
+| `PROVIDER_AUTH_ERROR` | 502 | Provider rejected our credentials |
+| `PROVIDER_RATE_LIMITED` | 502 | Provider rate limited the request |
+| `PROVIDER_ERROR` | 502 | Provider returned an unexpected error |
+| `PROVIDER_TIMEOUT` | 504 | Provider did not respond in time |
+| `EXTRACTION_EMPTY` | 422 | LLM returned no usable content |
+| `INTERNAL_ERROR` | 500 | Unexpected server error |
+
+Every error response includes the `request_id` for tracing.
+
+## Project structure
+
+```
+edgentities/
++-- kernel/                  # Rust/WASM extraction kernel
+|   +-- Cargo.toml
+|   +-- src/
+|       +-- lib.rs           # wasm-bindgen entry point
+|       +-- normalizer.rs    # Entity name canonicalization
+|       +-- parser.rs        # Tuple-delimited response parser
+|       +-- prompts.rs       # LLM prompt templates
+|       +-- presets.rs       # Domain entity-type presets
+|       +-- dedupe.rs        # Cross-pass deduplication
++-- src/                     # TypeScript Worker shell
+|   +-- index.ts             # Hono HTTP router
+|   +-- auth.ts              # Bearer + csvkey authentication
+|   +-- validate.ts          # Zod request validation
+|   +-- extractor.ts         # Gleaning loop orchestration
+|   +-- kernel.ts            # WASM bridge (init + wrappers)
+|   +-- errors.ts            # Error types and HTTP mapping
+|   +-- types.ts             # Shared TypeScript interfaces
+|   +-- wasm.d.ts            # Module declaration for .wasm imports
+|   +-- providers/
+|       +-- index.ts         # Provider factory
+|       +-- openai.ts        # OpenAI Chat Completions
+|       +-- anthropic.ts     # Anthropic Messages API
+|       +-- gemini.ts        # Google Generative AI
+|       +-- retry.ts         # Exponential backoff wrapper
++-- contract/                # Vendored edgequake reference code
++-- prd/                     # Product requirements document
++-- pkg/                     # Compiled WASM output (git-ignored)
++-- wrangler.toml            # Cloudflare Workers configuration
++-- package.json             # Node.js project manifest
++-- tsconfig.json            # TypeScript compiler configuration
+```
+
+## Environment variables
+
+### Plaintext vars (wrangler.toml)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DEFAULT_PROVIDER` | `openai` | Provider used when request omits `provider` field |
+| `OPENAI_DEFAULT_MODEL` | `gpt-4o-mini` | Default model for OpenAI requests |
+| `ANTHROPIC_DEFAULT_MODEL` | `claude-sonnet-4-6` | Default model for Anthropic requests |
+| `GEMINI_DEFAULT_MODEL` | `gemini-2.5-flash` | Default model for Gemini requests |
+| `MAX_INPUT_CHARS` | `32000` | Maximum input text length |
+| `LLM_TIMEOUT_MS` | `60000` | Per-call timeout for LLM requests |
+| `LLM_MAX_RETRIES` | `3` | Maximum retry attempts per LLM call |
+
+### Secrets (wrangler secret)
+
+| Secret | Description |
+|--------|-------------|
+| `API_KEYS` | Comma-separated list of valid authentication keys |
+| `OPENAI_API_KEY` | OpenAI API key |
+| `ANTHROPIC_API_KEY` | Anthropic API key |
+| `GEMINI_API_KEY` | Google Generative AI API key |
+
+## Scripts
+
+| Script | Description |
+|--------|-------------|
+| `npm run build:kernel` | Compile Rust kernel to WASM via wasm-pack |
+| `npm run build` | Full build (kernel + bundle) |
+| `npm run dev` | Start local Wrangler dev server |
+| `npm run deploy` | Deploy to production |
+| `npm run deploy:staging` | Deploy to staging |
+| `npm run typecheck` | Run TypeScript type checking |
+| `npm run test` | Run test suite |
+
+## License
+
+MIT
