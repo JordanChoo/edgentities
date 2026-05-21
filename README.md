@@ -164,7 +164,7 @@ If you prefer not to use the Wrangler CLI, you can deploy directly through the C
 4. Configure the build settings:
    - **Build command:** `npx wrangler deploy`
    - **Root directory:** leave empty (the project root contains `wrangler.toml`)
-5. Click **Deploy**. Cloudflare will clone the repo, install dependencies, compile the Rust kernel to WebAssembly, and deploy the Worker. The build environment must have Rust and `wasm-pack` installed; Cloudflare's build system includes Rust by default, but you may need to add `wasm-pack` installation to the build command: `curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh && npx wrangler deploy`
+5. Click **Deploy**. Cloudflare will clone the repo, install dependencies, compile the Rust kernel to WebAssembly, and deploy the Worker. The build script automatically installs `wasm-pack` if it's not present in the build environment.
 6. After the first deploy completes, go to **Settings > Variables and Secrets** for the Worker and add the required secrets:
    - `API_KEYS` — the authentication key(s) that callers must provide in the `?csvkey=` query parameter. If you need multiple keys (e.g., one per consumer), enter them as a comma-separated list (e.g., `key-for-app-a,key-for-app-b`). Every request to a protected endpoint must include `?csvkey=<one-of-these-values>` or it will be rejected with a `401`.
    - `GEMINI_API_KEY` — your Google Generative AI API key (required if using the `gemini` provider)

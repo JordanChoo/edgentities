@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build:kernel": "cd kernel && wasm-pack build --target web --release --out-dir ../pkg",
+    "build:kernel": "bash build.sh",
     "build": "npm run build:kernel",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",

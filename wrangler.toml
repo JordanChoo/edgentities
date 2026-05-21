@@ -3,7 +3,7 @@ main = "src/index.ts"
 compatibility_date = "2025-05-01"
 
 [build]
-command = "cd kernel && wasm-pack build --target web --release --out-dir ../pkg"
+command = "bash build.sh"
 
 [vars]
 DEFAULT_PROVIDER = "openai"
