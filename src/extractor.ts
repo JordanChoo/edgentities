@@ -96,6 +96,9 @@ export async function extract(
 
   for (let passIdx = 0; passIdx <= req.glean_passes; passIdx++) {
     if (passIdx > 0) {
+      if (!lastAssistantContent) {
+        break;
+      }
       history.push({ role: "assistant", content: lastAssistantContent });
       const continuePrompt = buildContinuePrompt(
         req.language,
