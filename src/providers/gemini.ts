@@ -1,5 +1,4 @@
 import type { Provider, CompletionOptions, CompletionResult, Message } from "../types.js";
-import { AppError } from "../errors.js";
 import { withRetry, mapProviderError } from "./retry.js";
 
 export class GeminiProvider implements Provider {
@@ -45,9 +44,6 @@ export class GeminiProvider implements Provider {
         const data = (await response.json()) as GeminiResponse;
         const candidate = data.candidates?.[0];
         const text = candidate?.content?.parts?.[0]?.text ?? "";
-        if (!text) {
-          throw new AppError("EXTRACTION_EMPTY", "Gemini returned no content");
-        }
 
         return {
           text,

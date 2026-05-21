@@ -7,10 +7,10 @@ export interface Env {
   LLM_TIMEOUT_MS: string;
   LLM_MAX_RETRIES: string;
   LOG_LEVEL: string;
-  API_KEYS: string;
-  OPENAI_API_KEY: string;
-  ANTHROPIC_API_KEY: string;
-  GEMINI_API_KEY: string;
+  API_KEYS?: string;
+  OPENAI_API_KEY?: string;
+  ANTHROPIC_API_KEY?: string;
+  GEMINI_API_KEY?: string;
 }
 
 export interface Message {

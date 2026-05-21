@@ -1,5 +1,4 @@
 import type { Provider, CompletionOptions, CompletionResult, Message } from "../types.js";
-import { AppError } from "../errors.js";
 import { withRetry, mapProviderError } from "./retry.js";
 
 export class AnthropicProvider implements Provider {
@@ -43,9 +42,6 @@ export class AnthropicProvider implements Provider {
 
         const data = (await response.json()) as AnthropicResponse;
         const text = data.content?.[0]?.text ?? "";
-        if (!text) {
-          throw new AppError("EXTRACTION_EMPTY", "Anthropic returned no content");
-        }
 
         return {
           text,

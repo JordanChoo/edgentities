@@ -7,7 +7,7 @@ const PROVIDER_NAMES = ["openai", "anthropic", "gemini"] as const;
 
 const extractRequestSchema = z
   .object({
-    text: z.string().min(1).max(32000),
+    text: z.string().min(1),
     entity_types: z
       .array(z.string().regex(ENTITY_TYPE_PATTERN))
       .min(1)

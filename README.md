@@ -275,9 +275,9 @@ This split means the TypeScript layer never parses LLM output or manipulates ent
 
 ### Retry and backoff strategy
 
-Provider calls use exponential backoff with jitter-free delays of 250ms, 1s, and 4s. Only transient failures are retried:
+Provider calls use a progressive backoff schedule of 250ms, 1s, and 4s between retry attempts. Only transient failures are retried:
 
-- **Retryable:** 408 (timeout), 429 (rate limit), 500, 502, 503, 504
+- **Retryable:** 408 (timeout), 429 (rate limit), 500, 502, 503, 504, network errors (DNS/TCP failures)
 - **Not retryable:** 400 (bad request), 401/403 (auth), 404 (not found)
 
 The maximum retry count is configurable via the `LLM_MAX_RETRIES` environment variable (default: 3).
@@ -289,10 +289,12 @@ All errors are classified with a machine-readable code and appropriate HTTP stat
 | Code | HTTP | Meaning |
 |------|------|---------|
 | `INVALID_REQUEST` | 400 | Request body failed validation |
-| `CONTENT_TOO_LARGE` | 400 | Text exceeds MAX_INPUT_CHARS |
 | `UNAUTHORIZED` | 401 | Missing or invalid credentials |
+| `FORBIDDEN` | 403 | Access denied |
+| `CONTENT_TOO_LARGE` | 413 | Text exceeds MAX_INPUT_CHARS |
+| `RATE_LIMITED` | 429 | Request rate limited |
+| `PROVIDER_RATE_LIMITED` | 429 | Provider rate limited the request |
 | `PROVIDER_AUTH_ERROR` | 502 | Provider rejected our credentials |
-| `PROVIDER_RATE_LIMITED` | 502 | Provider rate limited the request |
 | `PROVIDER_ERROR` | 502 | Provider returned an unexpected error |
 | `PROVIDER_TIMEOUT` | 504 | Provider did not respond in time |
 | `EXTRACTION_EMPTY` | 422 | LLM returned no usable content |

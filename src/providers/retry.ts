@@ -31,6 +31,9 @@ function isRetryable(err: unknown): boolean {
   if (err instanceof AppError) {
     return err.retryable;
   }
+  if (err instanceof TypeError) {
+    return true;
+  }
   if (err instanceof Error && "status" in err) {
     return RETRYABLE_STATUS_CODES.has((err as { status: number }).status);
   }

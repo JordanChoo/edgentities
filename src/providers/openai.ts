@@ -1,5 +1,4 @@
 import type { Provider, CompletionOptions, CompletionResult, Message } from "../types.js";
-import { AppError } from "../errors.js";
 import { withRetry, mapProviderError } from "./retry.js";
 
 export class OpenAIProvider implements Provider {
@@ -41,16 +40,13 @@ export class OpenAIProvider implements Provider {
 
         const data = (await response.json()) as OpenAIResponse;
         const choice = data.choices?.[0];
-        if (!choice) {
-          throw new AppError("EXTRACTION_EMPTY", "OpenAI returned no choices");
-        }
 
         return {
-          text: choice.message.content ?? "",
+          text: choice?.message.content ?? "",
           input_tokens: data.usage?.prompt_tokens ?? 0,
           output_tokens: data.usage?.completion_tokens ?? 0,
           model: data.model ?? model,
-          finish_reason: mapFinishReason(choice.finish_reason),
+          finish_reason: mapFinishReason(choice?.finish_reason),
         };
       },
       this.maxRetries,
@@ -63,7 +59,7 @@ function formatMessage(msg: Message) {
   return { role: msg.role, content: msg.content };
 }
 
-function mapFinishReason(reason: string): CompletionResult["finish_reason"] {
+function mapFinishReason(reason: string | undefined): CompletionResult["finish_reason"] {
   switch (reason) {
     case "stop":
       return "stop";
