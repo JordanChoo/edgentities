@@ -1,9 +1,12 @@
 # Build artifacts
 /target/
+/kernel/target/
+/pkg/
 **/*.rs.bk
 
-# Cargo lock for libraries (remove this line if building a binary)
-# Cargo.lock
+# Node
+node_modules/
+dist/
 
 # Environment
 .env
@@ -25,3 +28,7 @@ Thumbs.db
 
 # Debug
 *.pdb
+
+# Wrangler
+.wrangler/
+.dev.vars

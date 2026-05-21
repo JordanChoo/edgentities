@@ -1,0 +1,22 @@
+name = "extraction-worker"
+main = "src/index.ts"
+compatibility_date = "2025-05-01"
+
+[build]
+command = "cd kernel && wasm-pack build --target web --release --out-dir ../pkg"
+
+[vars]
+DEFAULT_PROVIDER = "openai"
+OPENAI_DEFAULT_MODEL = "gpt-4o-mini"
+ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-4-6"
+GEMINI_DEFAULT_MODEL = "gemini-2.5-flash"
+MAX_INPUT_CHARS = "32000"
+LLM_TIMEOUT_MS = "60000"
+LLM_MAX_RETRIES = "3"
+LOG_LEVEL = "info"
+
+[env.staging]
+name = "extraction-worker-staging"
+
+[env.production]
+name = "extraction-worker"
