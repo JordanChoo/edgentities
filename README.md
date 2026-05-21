@@ -90,16 +90,133 @@ curl -X POST "http://localhost:8787/v1/extract?csvkey=your-auth-key" \
   }'
 ```
 
-### Deployment
+## Deployment
+
+### First-time setup
+
+1. **Log in to Cloudflare.** This opens a browser to authorize Wrangler against your Cloudflare account:
+
+   ```bash
+   wrangler login
+   ```
+
+2. **Verify your account.** Confirm Wrangler can see your account and has the right permissions:
+
+   ```bash
+   wrangler whoami
+   ```
+
+3. **Configure secrets.** Each command prompts you to paste the value interactively. Secrets must be set _before_ the first deploy; otherwise the Worker will return errors on every request. Only configure the provider keys you plan to use:
+
+   ```bash
+   wrangler secret put API_KEYS
+   wrangler secret put GEMINI_API_KEY
+   ```
+
+   Optionally, if you plan to use OpenAI or Anthropic:
+
+   ```bash
+   wrangler secret put OPENAI_API_KEY
+   wrangler secret put ANTHROPIC_API_KEY
+   ```
+
+   You can verify which secrets are configured (values are not shown):
+
+   ```bash
+   wrangler secret list
+   ```
+
+4. **Deploy.** This compiles the Rust kernel to WebAssembly via `wasm-pack`, bundles it with the TypeScript shell, and pushes to Cloudflare's edge network:
+
+   ```bash
+   wrangler deploy
+   ```
+
+   Wrangler prints the live URL on success (e.g., `https://extraction-worker.<your-subdomain>.workers.dev`).
+
+5. **Verify the deployment.** Run a quick health check against the live URL:
+
+   ```bash
+   # Should return {"status":"ok"} (health endpoint is unauthenticated)
+   curl -s https://extraction-worker.<your-subdomain>.workers.dev/v1/health | jq .
+
+   # Full end-to-end test
+   curl -s -X POST "https://extraction-worker.<your-subdomain>.workers.dev/v1/extract?csvkey=YOUR_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{"text": "Test extraction.", "provider": "gemini"}' | jq .
+   ```
+
+### Deploying via the Cloudflare dashboard
+
+If you prefer not to use the Wrangler CLI, you can deploy directly through the Cloudflare dashboard by connecting your GitHub repository.
+
+1. Log in to the [Cloudflare dashboard](https://dash.cloudflare.com/) and navigate to **Workers & Pages**.
+2. Click **Create** and select **Import a repository**.
+3. Connect your GitHub account if you haven't already, then select the `edgentities` repository.
+4. Configure the build settings:
+   - **Build command:** `npx wrangler deploy`
+   - **Root directory:** leave empty (the project root contains `wrangler.toml`)
+5. Click **Deploy**. Cloudflare will clone the repo, install dependencies, compile the Rust kernel to WebAssembly, and deploy the Worker. The build environment must have Rust and `wasm-pack` installed; Cloudflare's build system includes Rust by default, but you may need to add `wasm-pack` installation to the build command: `curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh && npx wrangler deploy`
+6. After the first deploy completes, go to **Settings > Variables and Secrets** for the Worker and add the required secrets:
+   - `API_KEYS` — comma-separated list of valid authentication keys
+   - `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` — add whichever providers you plan to use
+
+   Click **Encrypt** for each value to store them as encrypted secrets.
+
+With this setup, every push to `main` triggers an automatic rebuild and deploy. You can disable automatic deployments or limit them to specific branches under **Settings > Builds & Deployments**.
+
+### Updating after code changes
+
+Redeployment is a single command. Wrangler rebuilds and pushes atomically:
 
 ```bash
-# Set secrets
-wrangler secret put API_KEYS
-wrangler secret put GEMINI_API_KEY
-
-# Deploy to production
-npm run deploy
+wrangler deploy
 ```
+
+The new version goes live globally within seconds. There is no need to re-configure secrets; they persist across deployments.
+
+### Environment management
+
+The `wrangler.toml` already defines staging and production environments. Deploy and configure secrets per environment:
+
+```bash
+# Staging
+wrangler deploy --env staging
+wrangler secret put API_KEYS --env staging
+wrangler secret put GEMINI_API_KEY --env staging
+
+# Production
+wrangler deploy --env production
+wrangler secret put API_KEYS --env production
+wrangler secret put GEMINI_API_KEY --env production
+```
+
+This lets you test with a separate `API_KEYS` value and provider keys in staging before promoting to production. Each environment gets its own URL and its own set of secrets.
+
+### Rollback
+
+Cloudflare Workers supports instant rollback to any previous deployment version through the dashboard or CLI.
+
+**Via CLI:** list recent deployments and roll back by version ID:
+
+```bash
+wrangler deployments list
+wrangler deployments rollback <version-id>
+```
+
+**Via dashboard:** navigate to **Workers & Pages > extraction-worker > Deployments**, find the version you want, and click **Rollback**.
+
+Rollbacks are instant and do not affect secrets; the previous Worker code runs with the current secret values. If you need to roll back a secret change, use `wrangler secret put` to set the previous value.
+
+### Monitoring a deployment
+
+After deploying, you can tail live logs to watch requests in real time:
+
+```bash
+wrangler tail
+```
+
+Use `wrangler tail --format json` for structured output suitable for piping into log aggregation tools.
 
 ## Request schema
 
