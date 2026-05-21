@@ -242,7 +242,12 @@ If the LLM response ends without the completion delimiter, the Worker MUST still
 
 ### FR-12. Authentication
 
-All `/v1/*` endpoints (except `/v1/health` and `/v1/version`) MUST require a Bearer token in the `Authorization` header. The Worker MUST validate the token against a secret stored in Workers Secrets (`API_KEYS`, a comma-separated set of accepted keys). Failed authentication MUST return HTTP 401 with error code `UNAUTHORIZED`. Optional: Cloudflare Access integration for org-internal callers (see Open Question OQ-2).
+All `/v1/*` endpoints (except `/v1/health` and `/v1/version`) MUST be authenticated via one of two mechanisms:
+
+1. **Bearer token** — `Authorization: Bearer <token>` header validated against Workers Secrets (`API_KEYS`, a comma-separated set of accepted keys).
+2. **URL query parameter** — `?csvkey=<token>` validated against the same `API_KEYS` secret.
+
+A request is authenticated if EITHER mechanism provides a valid key. If neither is present or both are invalid, the Worker MUST return HTTP 401 with error code `UNAUTHORIZED`. Both mechanisms MUST use constant-time string comparison. Optional: Cloudflare Access integration for org-internal callers (see Open Question OQ-2).
 
 ### FR-13. Health & readiness
 
@@ -348,13 +353,20 @@ Staging: `https://extraction-staging.<your-zone>.workers.dev`.
 
 ### 9.2 Authentication
 
-All authenticated endpoints accept a Bearer token:
+All authenticated endpoints accept either a Bearer token or a URL query parameter:
 
 ```
 Authorization: Bearer <token>
 ```
 
-Tokens are pre-shared keys configured via Workers Secrets. Rotation procedure documented in **§13.3**.
+or
+
+```
+GET /v1/presets?csvkey=<token>
+POST /v1/extract?csvkey=<token>
+```
+
+Either mechanism is sufficient. Tokens are pre-shared keys configured via Workers Secrets (`API_KEYS`). Rotation procedure documented in **§13.3**.
 
 ### 9.3 Endpoints
 
